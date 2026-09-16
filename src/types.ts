@@ -27,7 +27,6 @@ export interface MarshalRegistration {
   residentialAddress: string;
   homeTelNo: string;
   cellNo: string;
-  /** Optional WhatsApp number (defaults to same as cell if user checks the box) */
   whatsappNo?: string;
   idNumber: string;
   chiefOfArea: string;
@@ -41,15 +40,12 @@ export interface MarshalRegistration {
   region: Region;
   agreementAccepted: boolean;
 
-  // Media: local data URLs (for immediate preview / offline cache)
   signatureDataUrl?: string;
   photoDataUrl?: string;
 
-  // Media: remote storage paths (set after upload to Supabase Storage)
   photoStoragePath?: string;
   signatureStoragePath?: string;
 
-  // Remote URLs (public CDN URLs from Supabase Storage)
   photoRemoteUrl?: string;
   signatureRemoteUrl?: string;
 
@@ -71,11 +67,6 @@ export interface SyncLog {
   message: string;
 }
 
-/**
- * Shape of a row in the Supabase `marshals` table (snake_case).
- * `server_created_at` and `server_updated_at` are optional because the DB
- * manages them via defaults/triggers — clients never send them.
- */
 export interface MarshalRow {
   id: string;
   staff_number: string;
