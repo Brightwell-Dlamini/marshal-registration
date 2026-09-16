@@ -90,7 +90,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col selection:bg-amber-400 selection:text-slate-900">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col selection:bg-amber-400 selection:text-slate-900">
       <Header
         currentTab={activeTab}
         onSelectTab={(tab) => {
@@ -107,7 +107,7 @@ export default function App() {
         {isLoading ? (
           <div className="max-w-md mx-auto my-20 p-8 text-center">
             <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-sm font-semibold text-slate-600">
+            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
               Initializing Eswatini Marshals Registry...
             </p>
           </div>
