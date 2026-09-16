@@ -452,8 +452,9 @@ class StorageService {
         const result = await this.uploadMediaAndSync({ ...m, syncStatus: 'syncing' });
         await idbCache.put(result);
         synced++;
-      } catch (err) {
-        console.error(`[Sync] Failed to sync ${m.id}`, err);
+           } catch (err) {
+        const message = err instanceof Error ? err.message : JSON.stringify(err);
+        console.error(`[Sync] Failed to sync ${m.id}:`, message, err);
         failedIds.push(m.id);
         await idbCache.put({ ...m, syncStatus: 'error', updatedAt: Date.now() });
       }
