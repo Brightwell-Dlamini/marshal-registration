@@ -27,6 +27,8 @@ export interface MarshalRegistration {
   residentialAddress: string;
   homeTelNo: string;
   cellNo: string;
+  /** Optional WhatsApp number (defaults to same as cell if user checks the box) */
+  whatsappNo?: string;
   idNumber: string;
   chiefOfArea: string;
   indvuna: string;
@@ -83,6 +85,7 @@ export interface MarshalRow {
   residential_address: string;
   home_tel_no: string;
   cell_no: string;
+  whatsapp_no: string | null;
   id_number: string;
   chief_of_area: string;
   indvuna: string;
