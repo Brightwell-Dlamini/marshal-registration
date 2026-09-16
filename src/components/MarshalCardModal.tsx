@@ -1,38 +1,80 @@
 import React from 'react';
 import { MarshalRegistration } from '../types';
-import { X, Printer, Shield } from 'lucide-react';
+import { X, Printer, Shield, Phone, MessageCircle, Pencil } from 'lucide-react';
 
 interface MarshalCardModalProps {
   marshal: MarshalRegistration | null;
   onClose: () => void;
+  onEdit?: (marshal: MarshalRegistration) => void;
 }
 
-export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onClose }) => {
+const formatPhoneIntl = (phone: string): string => {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 8) return `+268${digits}`;
+  if (digits.startsWith('268')) return `+${digits}`;
+  return digits ? `+${digits}` : '';
+};
+
+export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({
+  marshal,
+  onClose,
+  onEdit,
+}) => {
   if (!marshal) return null;
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () => window.print();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/70 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white">
       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-300 overflow-hidden my-auto print:shadow-none print:border-none print:max-w-none print:w-full">
+        {/* Toolbar */}
         <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between print:hidden">
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-amber-400" />
-            <span className="text-sm font-bold tracking-wide">
-              Official Marshal Registration Record
-            </span>
+            <span className="text-sm font-bold tracking-wide">Official Registration Record</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {/* P2.6 — Click-to-call */}
+            <a
+              href={`tel:${formatPhoneIntl(marshal.cellNo)}`}
+              className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              title={`Call ${marshal.cellNo}`}
+            >
+              <Phone className="w-4 h-4" />
+            </a>
+
+            {/* P2.10 — Click-to-WhatsApp */}
+            {marshal.whatsappNo && (
+              <a
+                href={`https://wa.me/${formatPhoneIntl(marshal.whatsappNo).replace('+', '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1.5 rounded-lg text-emerald-400 hover:text-white hover:bg-emerald-700 transition"
+                title={`WhatsApp ${marshal.whatsappNo}`}
+              >
+                <MessageCircle className="w-4 h-4" />
+              </a>
+            )}
+
+            {onEdit && (
+              <button
+                type="button"
+                onClick={() => onEdit(marshal)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-xs transition"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edit</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handlePrint}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-xs transition"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Form</span>
+              <span>Print</span>
             </button>
 
             <button
@@ -106,39 +148,13 @@ export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onC
                   STAFF #{marshal.staffNumber}
                 </div>
               </div>
-              <span className="text-[9px] font-sans text-slate-500 mt-1">
-                Official Passport Photo
-              </span>
+              <span className="text-[9px] font-sans text-slate-500 mt-1">Official Photo</span>
             </div>
 
             <div className="flex-1 space-y-2.5 text-xs leading-relaxed">
-              <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1">
-                <span className="w-36 font-sans font-bold text-slate-800 flex-shrink-0">
-                  First names:
-                </span>
-                <span className="font-serif text-sm font-semibold text-blue-950">
-                  {marshal.firstName}
-                </span>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1">
-                <span className="w-36 font-sans font-bold text-slate-800 flex-shrink-0">
-                  Surname:
-                </span>
-                <span className="font-serif text-sm font-semibold text-blue-950">
-                  {marshal.surname}
-                </span>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1">
-                <span className="w-36 font-sans font-bold text-slate-800 flex-shrink-0">
-                  Position:
-                </span>
-                <span className="font-serif text-sm font-semibold text-blue-950">
-                  {marshal.position}
-                </span>
-              </div>
-
+              <Row label="First names" value={marshal.firstName} />
+              <Row label="Surname" value={marshal.surname} />
+              <Row label="Position" value={marshal.position} />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-b border-dotted border-slate-400 pb-1 bg-rose-50/40 p-1.5 rounded">
                 <div className="flex items-baseline">
                   <span className="w-32 font-sans font-bold text-rose-950 flex-shrink-0">
@@ -158,7 +174,6 @@ export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onC
                   </span>
                 </div>
               </div>
-
               <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1 bg-rose-50/40 p-1.5 rounded">
                 <span className="w-36 font-sans font-bold text-rose-950 flex-shrink-0">
                   Partner's Name:
@@ -167,16 +182,10 @@ export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onC
                   {marshal.partnerName || 'N/A (Single / Not Recorded)'}
                 </span>
               </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1">
-                <span className="w-36 font-sans font-bold text-slate-800 flex-shrink-0">
-                  Residential address:
-                </span>
-                <span className="font-serif text-sm font-semibold text-blue-950">
-                  {marshal.residentialAddress} ({marshal.region})
-                </span>
-              </div>
-
+              <Row
+                label="Residential address"
+                value={`${marshal.residentialAddress} (${marshal.region})`}
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-b border-dotted border-slate-400 pb-1">
                 <div className="flex items-baseline">
                   <span className="w-28 font-sans font-bold text-slate-800 flex-shrink-0">
@@ -195,25 +204,8 @@ export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onC
                   </span>
                 </div>
               </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1">
-                <span className="w-36 font-sans font-bold text-slate-800 flex-shrink-0">
-                  WhatsApp No:
-                </span>
-                <span className="font-serif text-sm font-semibold text-blue-950 font-mono">
-                  {marshal.whatsappNo || 'N/A'}
-                </span>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1">
-                <span className="w-36 font-sans font-bold text-slate-800 flex-shrink-0">
-                  I.D. No:
-                </span>
-                <span className="font-serif text-sm font-semibold text-blue-950 font-mono tracking-wider">
-                  {marshal.idNumber}
-                </span>
-              </div>
-
+              <Row label="WhatsApp No" value={marshal.whatsappNo || 'N/A'} mono />
+              <Row label="I.D. No" value={marshal.idNumber} mono />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-b border-dotted border-slate-400 pb-1">
                 <div className="flex items-baseline">
                   <span className="w-28 font-sans font-bold text-slate-800 flex-shrink-0">
@@ -232,16 +224,10 @@ export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onC
                   </span>
                 </div>
               </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1">
-                <span className="w-36 font-sans font-bold text-slate-800 flex-shrink-0">
-                  Next of kin:
-                </span>
-                <span className="font-serif text-sm font-semibold text-blue-950">
-                  {marshal.nextOfKin.fullName} ({marshal.nextOfKin.relationship}){' '}
-                  {marshal.nextOfKin.contactNumber}
-                </span>
-              </div>
+              <Row
+                label="Next of kin"
+                value={`${marshal.nextOfKin.fullName} (${marshal.nextOfKin.relationship}) ${marshal.nextOfKin.contactNumber}`}
+              />
             </div>
           </div>
 
@@ -250,8 +236,8 @@ export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onC
               <strong className="font-sans font-bold text-slate-900 block mb-0.5">
                 AGREEMENT:
               </strong>
-              The undersigned person has agreed that he/she will abide by rules and regulations of the
-              above named association.
+              The undersigned person has agreed that he/she will abide by rules and regulations
+              of the above named association.
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
@@ -263,7 +249,7 @@ export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onC
                   {marshal.signatureRemoteUrl || marshal.signatureDataUrl ? (
                     <img
                       src={marshal.signatureRemoteUrl || marshal.signatureDataUrl}
-                      alt="Member signature"
+                      alt="Signature"
                       className="h-14 max-w-full object-contain"
                     />
                   ) : (
@@ -295,3 +281,20 @@ export const MarshalCardModal: React.FC<MarshalCardModalProps> = ({ marshal, onC
     </div>
   );
 };
+
+const Row: React.FC<{ label: string; value: string; mono?: boolean }> = ({
+  label,
+  value,
+  mono,
+}) => (
+  <div className="flex flex-col sm:flex-row sm:items-baseline border-b border-dotted border-slate-400 pb-1">
+    <span className="w-36 font-sans font-bold text-slate-800 flex-shrink-0">{label}:</span>
+    <span
+      className={`font-serif text-sm font-semibold text-blue-950 ${
+        mono ? 'font-mono tracking-wider' : ''
+      }`}
+    >
+      {value}
+    </span>
+  </div>
+);
