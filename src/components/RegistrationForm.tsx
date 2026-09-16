@@ -3,6 +3,7 @@ import { MarshalRegistration, Region, MaritalStatus } from '../types';
 import { PhotoUpload } from './PhotoUpload';
 import { SignaturePad } from './SignaturePad';
 import { useSync } from '../services/sync';
+import { storageService } from '../services/storage';
 import {
   Send,
   Sparkles,
@@ -23,10 +24,15 @@ import {
   Plus,
   MessageCircle,
   Copy,
+  Save,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface RegistrationFormProps {
   onSuccess: (marshal: MarshalRegistration) => void;
+  /** P2.3 — if set, we're editing an existing record */
+  editingMarshal?: MarshalRegistration | null;
+  onCancelEdit?: () => void;
 }
 
 const REGIONS: Region[] = ['Manzini', 'Hhohho', 'Shiselweni', 'Lubombo'];
@@ -54,10 +60,14 @@ const COMMON_POSITIONS = [
   'Chief Rank Supervisor',
 ];
 
-export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess }) => {
+export const RegistrationForm: React.FC<RegistrationFormProps> = ({
+  onSuccess,
+  editingMarshal,
+  onCancelEdit,
+}) => {
   const { isOnline } = useSync();
+  const isEditMode = !!editingMarshal;
 
-  // Form State
   const [staffNumber, setStaffNumber] = useState('04');
   const [firstName, setFirstName] = useState('');
   const [surname, setSurname] = useState('');
@@ -71,7 +81,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
   const [chiefOfArea, setChiefOfArea] = useState('');
   const [indvuna, setIndvuna] = useState('');
 
-  // Marital & Family Profiling State
   const [maritalStatus, setMaritalStatus] = useState<MaritalStatus>('Married');
   const [partnerName, setPartnerName] = useState('');
   const [numberOfKids, setNumberOfKids] = useState<number>(0);
@@ -88,22 +97,60 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
   });
   const [fieldOfficerName, setFieldOfficerName] = useState('Officer In-Charge (Manzini)');
 
-  // Validation & feedback state
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState<MarshalRegistration | null>(null);
 
-  // Sync WhatsApp with Cell when the checkbox is ticked
+  // Load editingMarshal into state
   useEffect(() => {
-    if (whatsappSameAsCell) {
-      setWhatsappNo(cellNo);
-    }
+    if (!editingMarshal) return;
+    setStaffNumber(editingMarshal.staffNumber);
+    setFirstName(editingMarshal.firstName);
+    setSurname(editingMarshal.surname);
+    setPosition(editingMarshal.position);
+    setResidentialAddress(editingMarshal.residentialAddress);
+    setHomeTelNo(editingMarshal.homeTelNo);
+    setCellNo(editingMarshal.cellNo);
+    const wa = editingMarshal.whatsappNo || '';
+    setWhatsappNo(wa);
+    setWhatsappSameAsCell(!!wa && wa === editingMarshal.cellNo);
+    setIdNumber(editingMarshal.idNumber);
+    setChiefOfArea(editingMarshal.chiefOfArea);
+    setIndvuna(editingMarshal.indvuna);
+    setMaritalStatus(editingMarshal.maritalStatus);
+    setPartnerName(editingMarshal.partnerName || '');
+    setNumberOfKids(editingMarshal.numberOfKids ?? 0);
+    setKinName(editingMarshal.nextOfKin.fullName);
+    setKinRelationship(editingMarshal.nextOfKin.relationship);
+    setKinPhone(editingMarshal.nextOfKin.contactNumber);
+    setRegion(editingMarshal.region);
+    setAgreementAccepted(editingMarshal.agreementAccepted);
+    setPhotoDataUrl(editingMarshal.photoRemoteUrl || editingMarshal.photoDataUrl || '');
+    setSignatureDataUrl(
+      editingMarshal.signatureRemoteUrl || editingMarshal.signatureDataUrl || ''
+    );
+    setRegistrationDate(editingMarshal.registrationDate);
+    setFieldOfficerName(editingMarshal.fieldOfficerName || 'Officer In-Charge (Manzini)');
+  }, [editingMarshal]);
+
+  useEffect(() => {
+    if (whatsappSameAsCell) setWhatsappNo(cellNo);
   }, [cellNo, whatsappSameAsCell]);
 
   const handleWhatsappCheckbox = (checked: boolean) => {
     setWhatsappSameAsCell(checked);
-    if (checked) {
-      setWhatsappNo(cellNo);
+    if (checked) setWhatsappNo(cellNo);
+  };
+
+  // P2.7 — Duplicate detection on ID blur
+  const checkDuplicate = async () => {
+    const trimmed = idNumber.trim();
+    if (trimmed.length < 5) {
+      setDuplicateWarning(null);
+      return;
     }
+    const dup = await storageService.findDuplicateByIdNumber(trimmed, editingMarshal?.id);
+    setDuplicateWarning(dup);
   };
 
   const handlePrefillSample = () => {
@@ -159,31 +206,32 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
     }
 
     setErrors({});
+    setDuplicateWarning(null);
   };
 
   const handleReset = () => {
-    if (confirm('Are you sure you want to clear all form entries?')) {
-      setStaffNumber(String(Math.floor(Math.random() * 90) + 10));
-      setFirstName('');
-      setSurname('');
-      setPosition('');
-      setResidentialAddress('');
-      setHomeTelNo('');
-      setCellNo('');
-      setWhatsappNo('');
-      setWhatsappSameAsCell(true);
-      setIdNumber('');
-      setChiefOfArea('');
-      setIndvuna('');
-      setMaritalStatus('Single');
-      setPartnerName('');
-      setNumberOfKids(0);
-      setKinName('');
-      setKinPhone('');
-      setPhotoDataUrl('');
-      setSignatureDataUrl('');
-      setErrors({});
-    }
+    if (!confirm('Are you sure you want to clear all form entries?')) return;
+    setStaffNumber(String(Math.floor(Math.random() * 90) + 10));
+    setFirstName('');
+    setSurname('');
+    setPosition('');
+    setResidentialAddress('');
+    setHomeTelNo('');
+    setCellNo('');
+    setWhatsappNo('');
+    setWhatsappSameAsCell(true);
+    setIdNumber('');
+    setChiefOfArea('');
+    setIndvuna('');
+    setMaritalStatus('Single');
+    setPartnerName('');
+    setNumberOfKids(0);
+    setKinName('');
+    setKinPhone('');
+    setPhotoDataUrl('');
+    setSignatureDataUrl('');
+    setErrors({});
+    setDuplicateWarning(null);
   };
 
   const validate = (): boolean => {
@@ -199,7 +247,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
     if (!chiefOfArea.trim()) errs.chiefOfArea = 'Chief of area is required';
     if (!indvuna.trim()) errs.indvuna = 'Indvuna name is required';
 
-    // WhatsApp: only validate if user chose to enter a different one
     if (!whatsappSameAsCell && !whatsappNo.trim()) {
       errs.whatsappNo = 'Enter WhatsApp number or tick "Same as Cell"';
     }
@@ -236,11 +283,33 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
       return;
     }
 
+    // P2.7 — block submission on hard duplicate
+    if (duplicateWarning) {
+      const proceed = confirm(
+        `⚠ Duplicate ID detected!\n\n` +
+          `A marshal named "${duplicateWarning.firstName} ${duplicateWarning.surname}" ` +
+          `(Staff #${duplicateWarning.staffNumber}) already has ID ${idNumber}.\n\n` +
+          `Submit anyway?`
+      );
+      if (!proceed) return;
+    }
+
     setIsSubmitting(true);
 
     try {
+      // P2.3: Preserve the ID, creation time, and storage paths in edit mode.
+      const baseId =
+        editingMarshal?.id ||
+        'marshal-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+
+      const now = Date.now();
+
+      // Detect if photo/signature were changed to a NEW data URL (starts with 'data:')
+      const photoIsNewDataUrl = photoDataUrl.startsWith('data:');
+      const signatureIsNewDataUrl = signatureDataUrl.startsWith('data:');
+
       const newMarshal: MarshalRegistration = {
-        id: 'marshal-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+        id: baseId,
         staffNumber: staffNumber.trim(),
         firstName: firstName.trim(),
         surname: surname.trim(),
@@ -262,13 +331,20 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
         },
         region,
         agreementAccepted,
-        signatureDataUrl,
-        photoDataUrl,
+
+        // Only send base64 if it's a NEW capture; otherwise keep existing URLs
+        photoDataUrl: photoIsNewDataUrl ? photoDataUrl : undefined,
+        signatureDataUrl: signatureIsNewDataUrl ? signatureDataUrl : undefined,
+        photoStoragePath: editingMarshal?.photoStoragePath,
+        signatureStoragePath: editingMarshal?.signatureStoragePath,
+        photoRemoteUrl: editingMarshal?.photoRemoteUrl,
+        signatureRemoteUrl: editingMarshal?.signatureRemoteUrl,
+
         registrationDate,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: editingMarshal?.createdAt ?? now,
+        updatedAt: now,
         syncStatus: isOnline ? 'synced' : 'pending_sync',
-        syncedAt: isOnline ? Date.now() : undefined,
+        syncedAt: isOnline ? now : undefined,
         fieldOfficerName: fieldOfficerName.trim(),
       };
 
@@ -283,41 +359,61 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
 
   return (
     <div className="max-w-4xl mx-auto my-4 sm:my-8 px-3 sm:px-6">
-      {/* Quick Action Banner for Field Officers */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 mb-4 p-3 rounded-xl bg-blue-50/80 border border-blue-200">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-blue-700 flex-shrink-0" />
-          <span className="text-xs font-semibold text-blue-900">
-            Eswatini Field Officer Registration Terminal
-          </span>
+      {/* Edit Mode Banner */}
+      {isEditMode && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 mb-4 p-3 rounded-xl bg-amber-50 border border-amber-300">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0" />
+            <span className="text-xs font-bold text-amber-900">
+              EDIT MODE — Updating record for {editingMarshal?.firstName}{' '}
+              {editingMarshal?.surname} (Staff #{editingMarshal?.staffNumber})
+            </span>
+          </div>
+          {onCancelEdit && (
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold transition"
+            >
+              Cancel Edit
+            </button>
+          )}
         </div>
+      )}
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handlePrefillSample}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
-            title="Auto-fill with exact data from the uploaded paper form"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Load Sample from Form (Thulani Mkhatshwa #04)</span>
-          </button>
+      {/* Quick Action Banner */}
+      {!isEditMode && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 mb-4 p-3 rounded-xl bg-blue-50/80 border border-blue-200">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-blue-700 flex-shrink-0" />
+            <span className="text-xs font-semibold text-blue-900">
+              Eswatini Field Officer Registration Terminal
+            </span>
+          </div>
 
-          <button
-            type="button"
-            onClick={handleReset}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium transition"
-            title="Clear all inputs"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Clear</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePrefillSample}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Load Sample</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleReset}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium transition"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Clear</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Main Registration Form Paper Layout */}
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200/90 overflow-hidden">
-        {/* Authentic Association Header Banner */}
         <div className="bg-slate-900 text-white p-5 sm:p-7 border-b-4 border-amber-500 text-center relative">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-4 border-b border-slate-800">
             <div className="text-center sm:text-left flex items-center gap-3">
@@ -359,21 +455,18 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
               First floor Office No. 11, Main Post office Building, Cnr. Martin & Nkoseluhlaza Street,
               MANZINI
             </div>
-            <div>
-              P. O. Box 4176, MANZINI M200, SWAZILAND • TEL/FAX: 2505 7796
-            </div>
+            <div>P. O. Box 4176, MANZINI M200, SWAZILAND • TEL/FAX: 2505 7796</div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-800">
             <span className="inline-block px-4 py-1 rounded-full text-xs sm:text-sm font-extrabold uppercase tracking-widest bg-amber-500 text-slate-950 shadow-xs">
-              MARSHAL REGISTRATION
+              {isEditMode ? 'EDIT MARSHAL REGISTRATION' : 'MARSHAL REGISTRATION'}
             </span>
           </div>
         </div>
 
-        {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-8 space-y-6 sm:space-y-8">
-          {/* Section 1: Photo & Primary Identification */}
+          {/* Section 1 */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start pb-6 border-b border-slate-200">
             <div className="md:col-span-5">
               <PhotoUpload
@@ -440,7 +533,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                   type="text"
                   value={position}
                   onChange={(e) => setPosition(e.target.value)}
-                  placeholder="e.g. Uniswa Marshal or Manzini Rank Marshal"
+                  placeholder="e.g. Uniswa Marshal"
                   className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none transition ${
                     errors.position
                       ? 'border-red-400 bg-red-50/40 text-red-900'
@@ -466,7 +559,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                  Regional Branch (Eswatini District) <span className="text-red-500">*</span>
+                  Regional Branch <span className="text-red-500">*</span>
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {REGIONS.map((r) => (
@@ -488,7 +581,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
             </div>
           </div>
 
-          {/* Section 2: Contact & Residential Details */}
+          {/* Section 2 */}
           <div className="space-y-4 pb-6 border-b border-slate-200">
             <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
               <MapPin className="w-4 h-4 text-blue-700" />
@@ -538,9 +631,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                     }`}
                   />
                 </div>
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  MTN / Eswatini Mobile (8 digits)
-                </span>
                 {errors.cellNo && (
                   <span className="text-[11px] text-red-500 mt-0.5 block">{errors.cellNo}</span>
                 )}
@@ -557,13 +647,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                   placeholder="e.g. N/A or 2505 1234"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
                 />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  Optional (enter N/A if none)
-                </span>
               </div>
             </div>
 
-            {/* WhatsApp Number (with Same-as-Cell shortcut) */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
               <div className="sm:col-span-2">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
@@ -624,16 +710,13 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
             </div>
           </div>
 
-          {/* Section 3: Marital Profiling & Family Structure */}
+          {/* Section 3 */}
           <div className="space-y-5 pb-6 border-b border-slate-200">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
               <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
                 <Heart className="w-4 h-4 text-rose-600" />
                 <span>Marital Profiling & Family Structure</span>
               </h3>
-              <span className="text-[11px] font-medium text-slate-500">
-                Demographic & family welfare profile
-              </span>
             </div>
 
             <div className="bg-rose-50/40 border border-rose-100 rounded-2xl p-4 sm:p-5 space-y-5">
@@ -684,9 +767,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                     maritalStatus === 'Cohabiting' ? (
                       <span className="text-red-500">* (Required)</span>
                     ) : (
-                      <span className="text-slate-400 font-normal lowercase">
-                        (optional for {maritalStatus})
-                      </span>
+                      <span className="text-slate-400 font-normal lowercase">(optional)</span>
                     )}
                   </label>
                   <div className="relative">
@@ -697,11 +778,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                       type="text"
                       value={partnerName}
                       onChange={(e) => setPartnerName(e.target.value)}
-                      placeholder={
-                        maritalStatus === 'Single'
-                          ? 'N/A or enter partner name if applicable'
-                          : 'e.g. Thandiwe Dube (Spouse / Partner)'
-                      }
+                      placeholder="e.g. Thandiwe Dube (Spouse / Partner)"
                       className={`w-full pl-10 pr-3.5 py-2.5 rounded-xl border text-sm font-medium focus:ring-2 focus:ring-rose-500 focus:outline-none transition ${
                         errors.partnerName
                           ? 'border-red-400 bg-red-50/60 text-red-900'
@@ -718,18 +795,16 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
 
                 <div className="md:col-span-5">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 mb-1">
-                    Number of Kids (Children) <span className="text-red-500">*</span>
+                    Number of Kids <span className="text-red-500">*</span>
                   </label>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setNumberOfKids((prev) => Math.max(0, prev - 1))}
+                      onClick={() => setNumberOfKids((p) => Math.max(0, p - 1))}
                       className="w-10 h-10 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 flex items-center justify-center text-slate-700 active:scale-95 transition shadow-2xs flex-shrink-0"
-                      title="Decrease kids count"
                     >
                       <Minus className="w-4 h-4" />
                     </button>
-
                     <div className="relative flex-1">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                         <Baby className="w-4 h-4 text-amber-600" />
@@ -740,56 +815,26 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                         max="30"
                         value={numberOfKids}
                         onChange={(e) => {
-                          const val = parseInt(e.target.value, 10);
-                          setNumberOfKids(isNaN(val) ? 0 : Math.max(0, val));
+                          const v = parseInt(e.target.value, 10);
+                          setNumberOfKids(isNaN(v) ? 0 : Math.max(0, v));
                         }}
-                        className={`w-full pl-9 pr-3 py-2 text-center rounded-xl border font-mono font-bold text-base focus:ring-2 focus:ring-rose-500 focus:outline-none transition ${
-                          errors.numberOfKids
-                            ? 'border-red-400 bg-red-50 text-red-900'
-                            : 'border-slate-300 bg-white text-slate-900'
-                        }`}
+                        className="w-full pl-9 pr-3 py-2 text-center rounded-xl border border-slate-300 bg-white font-mono font-bold text-base focus:ring-2 focus:ring-rose-500 focus:outline-none transition"
                       />
                     </div>
-
                     <button
                       type="button"
-                      onClick={() => setNumberOfKids((prev) => prev + 1)}
+                      onClick={() => setNumberOfKids((p) => p + 1)}
                       className="w-10 h-10 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 flex items-center justify-center text-slate-700 active:scale-95 transition shadow-2xs flex-shrink-0"
-                      title="Increase kids count"
                     >
                       <Plus className="w-4 h-4" />
                     </button>
                   </div>
-
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Quick:</span>
-                    {[0, 1, 2, 3, 4, 5, 6].map((num) => (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => setNumberOfKids(num)}
-                        className={`text-[11px] px-2 py-0.5 rounded-md font-mono transition ${
-                          numberOfKids === num
-                            ? 'bg-rose-700 text-white font-bold'
-                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-rose-50'
-                        }`}
-                      >
-                        {num}
-                      </button>
-                    ))}
-                  </div>
-
-                  {errors.numberOfKids && (
-                    <span className="text-[11px] text-red-600 font-semibold mt-1 block">
-                      {errors.numberOfKids}
-                    </span>
-                  )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Section 4: Civic & Traditional Authority Identifiers */}
+          {/* Section 4 */}
           <div className="space-y-4 pb-6 border-b border-slate-200">
             <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
               <Crown className="w-4 h-4 text-amber-600" />
@@ -808,20 +853,33 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                   <input
                     type="text"
                     value={idNumber}
-                    onChange={(e) => setIdNumber(e.target.value)}
+                    onChange={(e) => {
+                      setIdNumber(e.target.value);
+                      if (duplicateWarning) setDuplicateWarning(null);
+                    }}
+                    onBlur={checkDuplicate}
                     placeholder="e.g. 8203296100441"
                     maxLength={13}
                     className={`w-full pl-9 pr-3 py-2.5 rounded-xl border text-sm font-mono font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none transition ${
-                      errors.idNumber
+                      errors.idNumber || duplicateWarning
                         ? 'border-red-400 bg-red-50/40 text-red-900'
                         : 'border-slate-300 bg-white text-slate-900'
                     }`}
                   />
                 </div>
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  13-digit Eswatini National ID
-                </span>
-                {errors.idNumber && (
+                {duplicateWarning && (
+                  <div className="mt-1.5 p-2 rounded-lg bg-red-50 border border-red-300 flex items-start gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-[10px] text-red-800 leading-snug">
+                      <strong>Duplicate ID detected:</strong> Already used by{' '}
+                      <strong>
+                        {duplicateWarning.firstName} {duplicateWarning.surname}
+                      </strong>{' '}
+                      (Staff #{duplicateWarning.staffNumber}, {duplicateWarning.region}).
+                    </div>
+                  </div>
+                )}
+                {errors.idNumber && !duplicateWarning && (
                   <span className="text-[11px] text-red-500 mt-0.5 block">{errors.idNumber}</span>
                 )}
               </div>
@@ -841,9 +899,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                       : 'border-slate-300 bg-white text-slate-900'
                   }`}
                 />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  Umphakatsi Chiefdom
-                </span>
                 {errors.chiefOfArea && (
                   <span className="text-[11px] text-red-500 mt-0.5 block">
                     {errors.chiefOfArea}
@@ -866,9 +921,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                       : 'border-slate-300 bg-white text-slate-900'
                   }`}
                 />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  Traditional Authority Headman
-                </span>
                 {errors.indvuna && (
                   <span className="text-[11px] text-red-500 mt-0.5 block">{errors.indvuna}</span>
                 )}
@@ -876,7 +928,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
             </div>
           </div>
 
-          {/* Section 5: Next of Kin */}
+          {/* Section 5 */}
           <div className="space-y-4 pb-6 border-b border-slate-200">
             <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
               <HeartHandshake className="w-4 h-4 text-rose-600" />
@@ -952,7 +1004,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
             </div>
           </div>
 
-          {/* Section 6: Agreement & Member's Signature */}
+          {/* Section 6 */}
           <div className="space-y-5 pb-6 border-b border-slate-200">
             <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200">
               <div className="flex items-start gap-3">
@@ -970,8 +1022,9 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
                   <strong className="font-sans font-bold text-slate-900 block mb-0.5">
                     AGREEMENT:
                   </strong>
-                  "The undersigned person has agreed that he/she will abide by rules and regulations
-                  of the above named association (Swaziland Local Transport Association)."
+                  "The undersigned person has agreed that he/she will abide by rules and
+                  regulations of the above named association (Swaziland Local Transport
+                  Association)."
                 </label>
               </div>
               {errors.agreement && (
@@ -1018,31 +1071,44 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({ onSuccess })
             </div>
           </div>
 
-          {/* Submission Bar */}
+          {/* Submit */}
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-xs text-slate-500 flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               <span>
                 {isOnline
-                  ? 'Active connection: Registration will save and synchronize immediately.'
-                  : 'Offline mode: Registration will be saved to device storage and synced automatically once signal returns.'}
+                  ? 'Active connection: will sync immediately.'
+                  : 'Offline: will sync automatically once signal returns.'}
               </span>
             </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-blue-700 hover:bg-blue-800 active:scale-98 disabled:opacity-50 text-white font-bold text-sm shadow-md flex items-center justify-center gap-2 transition"
-            >
-              <Send className="w-4 h-4" />
-              <span>
-                {isSubmitting
-                  ? 'Submitting Registration...'
-                  : isOnline
-                  ? 'Submit Marshal Registration'
-                  : 'Save Registration Offline'}
-              </span>
-            </button>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {isEditMode && onCancelEdit && (
+                <button
+                  type="button"
+                  onClick={onCancelEdit}
+                  className="flex-1 sm:flex-none px-6 py-3.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-sm shadow-xs transition"
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex-1 sm:flex-none px-8 py-3.5 rounded-xl bg-blue-700 hover:bg-blue-800 active:scale-98 disabled:opacity-50 text-white font-bold text-sm shadow-md flex items-center justify-center gap-2 transition"
+              >
+                {isEditMode ? <Save className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                <span>
+                  {isSubmitting
+                    ? 'Saving...'
+                    : isEditMode
+                    ? 'Update Registration'
+                    : isOnline
+                    ? 'Submit Registration'
+                    : 'Save Offline'}
+                </span>
+              </button>
+            </div>
           </div>
         </form>
 
