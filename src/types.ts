@@ -69,7 +69,11 @@ export interface SyncLog {
   message: string;
 }
 
-// Shape of a row in the Supabase `marshals` table (snake_case)
+/**
+ * Shape of a row in the Supabase `marshals` table (snake_case).
+ * `server_created_at` and `server_updated_at` are optional because the DB
+ * manages them via defaults/triggers — clients never send them.
+ */
 export interface MarshalRow {
   id: string;
   staff_number: string;
@@ -101,8 +105,8 @@ export interface MarshalRow {
   updated_at: number;
   synced_at: number | null;
   sync_status: string;
-  server_created_at: string;
-  server_updated_at: string;
+  server_created_at?: string;
+  server_updated_at?: string;
 }
 
 export interface SyncLogRow {
