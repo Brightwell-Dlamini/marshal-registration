@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSync } from '../services/sync';
 import { realtimeManager } from '../services/realtime';
 import { PWAInstallButton } from './PWAInstallButton';
+import { useTheme } from '../context/ThemeContext';
 import {
   Wifi,
   WifiOff,
@@ -13,6 +14,8 @@ import {
   LayoutDashboard,
   History,
   Activity,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -37,6 +40,8 @@ export const Header: React.FC<HeaderProps> = ({
     toggleSimulatedOffline,
   } = useSync();
 
+  const { theme, toggleTheme } = useTheme();
+
   const [realtimeStatus, setRealtimeStatus] = useState<
     'connecting' | 'live' | 'error' | 'closed'
   >('closed');
@@ -59,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
       : 'bg-slate-500';
 
   return (
-    <header className="bg-slate-900 text-white shadow-md sticky top-0 z-40 border-b border-slate-800">
+    <header className="bg-slate-900 text-white shadow-md sticky top-0 z-40 border-b border-slate-800 dark:border-slate-700">
       <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-3 pb-2.5">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -139,6 +144,20 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <History className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">History</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-slate-300" />
+              )}
             </button>
 
             {pendingCount > 0 ? (
