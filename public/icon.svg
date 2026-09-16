@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield Base -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)"/>
+  <!-- Outer Gold Ring -->
+  <circle cx="256" cy="256" r="200" fill="none" stroke="url(#goldGrad)" stroke-width="12" opacity="0.85"/>
+  <!-- Minibus Transport & Star Icon -->
+  <path d="M160 300 H352 V328 C352 336 345 342 337 342 H328 C320 342 313 336 313 328 V320 H199 V328 C199 336 192 342 184 342 H175 C167 342 160 336 160 328 Z" fill="#fbbf24"/>
+  <rect x="156" y="210" width="200" height="96" rx="16" fill="#f8fafc"/>
+  <rect x="174" y="226" width="76" height="40" rx="4" fill="#0284c7"/>
+  <rect x="262" y="226" width="76" height="40" rx="4" fill="#0284c7"/>
+  <!-- Headlights -->
+  <circle cx="180" cy="286" r="10" fill="#f59e0b"/>
+  <circle cx="332" cy="286" r="10" fill="#f59e0b"/>
+  <!-- Marshal Badge Shield Above -->
+  <path d="M256 120 L310 152 V200 C310 236 287 266 256 276 C225 266 202 236 202 200 V152 Z" fill="url(#goldGrad)" stroke="#ffffff" stroke-width="4"/>
+  <polygon points="256,155 262,175 282,175 266,187 272,207 256,195 240,207 246,187 230,175 250,175" fill="#1e3a8a"/>
+</svg>

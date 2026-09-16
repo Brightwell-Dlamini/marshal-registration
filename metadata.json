@@ -1,0 +1,11 @@
+{
+  "name": "Eswatini Marshals Registration",
+  "description": "Digital registration and marital profiling system for Eswatini Local Transport Association Marshals with partner records, children count, offline-first storage, and profile photo capture.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
+
