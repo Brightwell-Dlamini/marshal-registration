@@ -1,26 +1,28 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect } from 'react';
 import { MarshalRegistration } from './types';
 import { storageService } from './services/storage';
+import { realtimeManager } from './services/realtime';
 import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
 import { RegistrationForm } from './components/RegistrationForm';
 import { MarshalDirectory } from './components/MarshalDirectory';
 import { MarshalCardModal } from './components/MarshalCardModal';
 import { SuccessModal } from './components/SuccessModal';
+import { Dashboard } from './components/Dashboard';
+import { SyncLogViewer } from './components/SyncLogViewer';
+import { BulkPrintView } from './components/BulkPrintView';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'register' | 'directory'>('register');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'directory'>('dashboard');
   const [marshals, setMarshals] = useState<MarshalRegistration[]>([]);
   const [selectedMarshal, setSelectedMarshal] = useState<MarshalRegistration | null>(null);
   const [successMarshal, setSuccessMarshal] = useState<MarshalRegistration | null>(null);
+  const [editingMarshal, setEditingMarshal] = useState<MarshalRegistration | null>(null);
+  const [showSyncLogs, setShowSyncLogs] = useState(false);
+  const [bulkPrintMarshals, setBulkPrintMarshals] = useState<MarshalRegistration[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load marshals on mount and subscribe to changes
+  // Load + subscribe to storage changes
   useEffect(() => {
     let mounted = true;
 
@@ -49,11 +51,24 @@ export default function App() {
     };
   }, []);
 
+  // P2.8 — Start real-time subscription once on mount
+  useEffect(() => {
+    realtimeManager.start();
+    return () => {
+      realtimeManager.stop();
+    };
+  }, []);
+
   const handleSuccessRegistration = async (newMarshal: MarshalRegistration) => {
     await storageService.saveMarshal(newMarshal);
     const updated = await storageService.getAllMarshals();
     setMarshals(updated);
     setSuccessMarshal(newMarshal);
+    // If we were editing, exit edit mode
+    if (editingMarshal) {
+      setEditingMarshal(null);
+      setActiveTab('directory');
+    }
   };
 
   const handleDeleteMarshal = async (id: string) => {
@@ -62,19 +77,32 @@ export default function App() {
     setMarshals(updated);
   };
 
+  const handleEditFromDirectory = (m: MarshalRegistration) => {
+    setEditingMarshal(m);
+    setSelectedMarshal(null);
+    setActiveTab('register');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMarshal(null);
+    setActiveTab('directory');
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col selection:bg-amber-400 selection:text-slate-900">
-      {/* Top Header with Offline Indicator, Sync Trigger & View Tabs */}
       <Header
         currentTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={(tab) => {
+          if (tab !== 'register') setEditingMarshal(null);
+          setActiveTab(tab);
+        }}
         totalMarshalsCount={marshals.length}
+        onOpenSyncLogs={() => setShowSyncLogs(true)}
       />
 
-      {/* Persistent Offline / Unsynced Notice */}
       <OfflineBanner />
 
-      {/* Main Content Area */}
       <main className="flex-1 pb-16">
         {isLoading ? (
           <div className="max-w-md mx-auto my-20 p-8 text-center">
@@ -83,14 +111,25 @@ export default function App() {
               Initializing Eswatini Marshals Registry...
             </p>
           </div>
+        ) : activeTab === 'dashboard' ? (
+          <Dashboard marshals={marshals} />
         ) : activeTab === 'register' ? (
-          <RegistrationForm onSuccess={handleSuccessRegistration} />
+          <RegistrationForm
+            onSuccess={handleSuccessRegistration}
+            editingMarshal={editingMarshal}
+            onCancelEdit={handleCancelEdit}
+          />
         ) : (
           <MarshalDirectory
             marshals={marshals}
             onSelectMarshal={(m) => setSelectedMarshal(m)}
+            onEditMarshal={handleEditFromDirectory}
             onDeleteMarshal={handleDeleteMarshal}
-            onGoToRegister={() => setActiveTab('register')}
+            onGoToRegister={() => {
+              setEditingMarshal(null);
+              setActiveTab('register');
+            }}
+            onBulkPrint={(list) => setBulkPrintMarshals(list)}
           />
         )}
       </main>
@@ -99,6 +138,10 @@ export default function App() {
       <MarshalCardModal
         marshal={selectedMarshal}
         onClose={() => setSelectedMarshal(null)}
+        onEdit={(m) => {
+          setSelectedMarshal(null);
+          handleEditFromDirectory(m);
+        }}
       />
 
       <SuccessModal
@@ -110,11 +153,20 @@ export default function App() {
         }}
         onRegisterAnother={() => {
           setSuccessMarshal(null);
+          setEditingMarshal(null);
           setActiveTab('register');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
+
+      {showSyncLogs && <SyncLogViewer onClose={() => setShowSyncLogs(false)} />}
+
+      {bulkPrintMarshals && (
+        <BulkPrintView
+          marshals={bulkPrintMarshals}
+          onClose={() => setBulkPrintMarshals(null)}
+        />
+      )}
     </div>
   );
 }
-
