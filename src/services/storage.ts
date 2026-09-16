@@ -1,5 +1,11 @@
 import { MarshalRegistration, MarshalRow } from '../types';
-import { supabase, STORAGE_BUCKETS, TABLES, dataUrlToBlob, getExtensionFromDataUrl } from './supabase';
+import {
+  supabase,
+  STORAGE_BUCKETS,
+  TABLES,
+  dataUrlToBlob,
+  getExtensionFromDataUrl,
+} from './supabase';
 
 const DB_NAME = 'EswatiniMarshalsDB';
 const DB_VERSION = 1;
@@ -7,7 +13,7 @@ const STORE_MARSHALS = 'marshals';
 const LOCAL_STORAGE_BACKUP_KEY = 'eswatini_marshals_backup_v2';
 
 // =============================================================
-// SAMPLE DATA (used only if both local + remote are empty)
+// SAMPLE DATA (used only for initial prefill in the form)
 // =============================================================
 export const SAMPLE_INITIAL_MARSHAL: MarshalRegistration = {
   id: 'sample-04-mkhatshwa',
@@ -34,28 +40,14 @@ export const SAMPLE_INITIAL_MARSHAL: MarshalRegistration = {
   registrationDate: '2024-02-16',
   createdAt: Date.now() - 86400000 * 5,
   updatedAt: Date.now() - 86400000 * 5,
-  syncStatus: 'synced',
-  syncedAt: Date.now() - 86400000 * 5,
+  syncStatus: 'pending_sync',
   fieldOfficerName: 'Officer D. Simelane (Manzini Depot)',
-  photoDataUrl:
-    'data:image/svg+xml;utf8,' +
-    encodeURIComponent(`
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240" width="200" height="240">
-        <rect width="200" height="240" fill="#e2e8f0"/>
-        <circle cx="100" cy="85" r="45" fill="#5c3826"/>
-        <path d="M40 220 C40 160 70 145 100 145 C130 145 160 160 160 220 Z" fill="#d97706"/>
-        <path d="M85 145 L100 180 L115 145 Z" fill="#ffffff"/>
-        <circle cx="85" cy="82" r="5" fill="#1e1b4b"/>
-        <circle cx="115" cy="82" r="5" fill="#1e1b4b"/>
-        <path d="M80 105 Q100 115 120 105" stroke="#382318" stroke-width="4" fill="none"/>
-      </svg>
-    `),
 };
 
 // =============================================================
 // CONVERSION HELPERS
 // =============================================================
-function marshalToRow(m: MarshalRegistration): MarshalRow {
+function marshalToRow(m: MarshalRegistration): Omit<MarshalRow, 'server_created_at' | 'server_updated_at'> {
   return {
     id: m.id,
     staff_number: m.staffNumber,
@@ -87,13 +79,20 @@ function marshalToRow(m: MarshalRegistration): MarshalRow {
     updated_at: m.updatedAt,
     synced_at: m.syncedAt ?? null,
     sync_status: m.syncStatus,
-    // server_created_at / server_updated_at managed by DB — placeholder values
-    server_created_at: new Date(m.createdAt).toISOString(),
-    server_updated_at: new Date(m.updatedAt).toISOString(),
   };
 }
 
 function rowToMarshal(r: MarshalRow): MarshalRegistration {
+  const photoRemoteUrl = r.photo_storage_path
+    ? supabase.storage.from(STORAGE_BUCKETS.photos).getPublicUrl(r.photo_storage_path).data.publicUrl
+    : undefined;
+
+  const signatureRemoteUrl = r.signature_storage_path
+    ? supabase.storage
+        .from(STORAGE_BUCKETS.signatures)
+        .getPublicUrl(r.signature_storage_path).data.publicUrl
+    : undefined;
+
   return {
     id: r.id,
     staffNumber: r.staff_number,
@@ -123,12 +122,8 @@ function rowToMarshal(r: MarshalRow): MarshalRegistration {
     signatureStoragePath: r.signature_storage_path ?? undefined,
     photoDataUrl: r.photo_data_url ?? undefined,
     signatureDataUrl: r.signature_data_url ?? undefined,
-    photoRemoteUrl: r.photo_storage_path
-      ? supabase.storage.from(STORAGE_BUCKETS.photos).getPublicUrl(r.photo_storage_path).data.publicUrl
-      : undefined,
-    signatureRemoteUrl: r.signature_storage_path
-      ? supabase.storage.from(STORAGE_BUCKETS.signatures).getPublicUrl(r.signature_storage_path).data.publicUrl
-      : undefined,
+    photoRemoteUrl,
+    signatureRemoteUrl,
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
     syncStatus: (r.sync_status as MarshalRegistration['syncStatus']) || 'synced',
@@ -167,7 +162,7 @@ class IDBCache {
   async getAll(): Promise<MarshalRegistration[]> {
     try {
       const db = await this.open();
-      return new Promise((resolve, reject) => {
+      return await new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_MARSHALS, 'readonly');
         const req = tx.objectStore(STORE_MARSHALS).getAll();
         req.onsuccess = () => {
@@ -265,10 +260,9 @@ class StorageService {
   }
 
   // -----------------------------------------------------------
-  // READ: prefer remote, fall back to IndexedDB
+  // READ: prefer remote, merge local pending, fall back to cache
   // -----------------------------------------------------------
   public async getAllMarshals(): Promise<MarshalRegistration[]> {
-    // Try remote first
     try {
       const { data, error } = await supabase
         .from(TABLES.marshals)
@@ -277,12 +271,12 @@ class StorageService {
 
       if (error) throw error;
 
-      const remoteMarshals = (data as MarshalRow[]).map(rowToMarshal);
+      const remoteMarshals = ((data || []) as MarshalRow[]).map(rowToMarshal);
 
       // Cache remote data locally
       await idbCache.putMany(remoteMarshals);
 
-      // Also merge any locally-pending (not yet synced) records
+      // Merge any locally-pending records that aren't yet on the server
       const local = await idbCache.getAll();
       const pendingLocal = local.filter(
         (m) => m.syncStatus === 'pending_sync' || m.syncStatus === 'error'
@@ -320,21 +314,22 @@ class StorageService {
   }
 
   // -----------------------------------------------------------
-  // WRITE: always write locally first, then attempt remote
+  // WRITE: local-first then attempt remote
   // -----------------------------------------------------------
   public async saveMarshal(marshal: MarshalRegistration): Promise<MarshalRegistration> {
-    // 1. Save locally immediately (source of truth when offline)
+    // 1. Save locally immediately
     await idbCache.put(marshal);
     this.notify();
 
-    // 2. Try to push to Supabase
+    // 2. Try to push to Supabase (upload media + upsert row)
     try {
       const uploaded = await this.uploadMediaAndSync(marshal);
       await idbCache.put(uploaded);
       this.notify();
       return uploaded;
     } catch (err) {
-      console.warn('[Storage] Save succeeded locally but remote sync failed', err);
+      const message = err instanceof Error ? err.message : JSON.stringify(err);
+      console.warn('[Storage] Local save succeeded, remote sync failed:', message);
       const failed: MarshalRegistration = {
         ...marshal,
         syncStatus: 'pending_sync',
@@ -351,7 +346,6 @@ class StorageService {
     this.notify();
 
     try {
-      // Delete storage files first (best-effort)
       const { data } = await supabase
         .from(TABLES.marshals)
         .select('photo_storage_path, signature_storage_path')
@@ -359,12 +353,17 @@ class StorageService {
         .maybeSingle();
 
       if (data) {
-        const row = data as { photo_storage_path: string | null; signature_storage_path: string | null };
+        const row = data as {
+          photo_storage_path: string | null;
+          signature_storage_path: string | null;
+        };
         if (row.photo_storage_path) {
           await supabase.storage.from(STORAGE_BUCKETS.photos).remove([row.photo_storage_path]);
         }
         if (row.signature_storage_path) {
-          await supabase.storage.from(STORAGE_BUCKETS.signatures).remove([row.signature_storage_path]);
+          await supabase.storage
+            .from(STORAGE_BUCKETS.signatures)
+            .remove([row.signature_storage_path]);
         }
       }
 
@@ -391,7 +390,11 @@ class StorageService {
         .from(STORAGE_BUCKETS.photos)
         .upload(path, blob, { upsert: true, contentType: blob.type });
 
-      if (upErr) throw upErr;
+      if (upErr) {
+        throw new Error(
+          `Photo upload failed: ${upErr.message} (bucket=${STORAGE_BUCKETS.photos}, path=${path})`
+        );
+      }
       photoStoragePath = path;
     }
 
@@ -405,7 +408,11 @@ class StorageService {
         .from(STORAGE_BUCKETS.signatures)
         .upload(path, blob, { upsert: true, contentType: blob.type });
 
-      if (upErr) throw upErr;
+      if (upErr) {
+        throw new Error(
+          `Signature upload failed: ${upErr.message} (bucket=${STORAGE_BUCKETS.signatures}, path=${path})`
+        );
+      }
       signatureStoragePath = path;
     }
 
@@ -421,7 +428,9 @@ class StorageService {
         ? supabase.storage.from(STORAGE_BUCKETS.photos).getPublicUrl(photoStoragePath).data.publicUrl
         : undefined,
       signatureRemoteUrl: signatureStoragePath
-        ? supabase.storage.from(STORAGE_BUCKETS.signatures).getPublicUrl(signatureStoragePath).data.publicUrl
+        ? supabase.storage
+            .from(STORAGE_BUCKETS.signatures)
+            .getPublicUrl(signatureStoragePath).data.publicUrl
         : undefined,
     };
 
@@ -431,7 +440,11 @@ class StorageService {
       .from(TABLES.marshals)
       .upsert(row, { onConflict: 'id' });
 
-    if (dbErr) throw dbErr;
+    if (dbErr) {
+      throw new Error(
+        `DB upsert failed: ${dbErr.message} (code=${dbErr.code}, details=${dbErr.details ?? 'n/a'}, hint=${dbErr.hint ?? 'n/a'})`
+      );
+    }
 
     return syncedMarshal;
   }
@@ -452,9 +465,9 @@ class StorageService {
         const result = await this.uploadMediaAndSync({ ...m, syncStatus: 'syncing' });
         await idbCache.put(result);
         synced++;
-           } catch (err) {
+      } catch (err) {
         const message = err instanceof Error ? err.message : JSON.stringify(err);
-        console.error(`[Sync] Failed to sync ${m.id}:`, message, err);
+        console.error(`[Sync] Failed to sync ${m.id}:`, message);
         failedIds.push(m.id);
         await idbCache.put({ ...m, syncStatus: 'error', updatedAt: Date.now() });
       }
