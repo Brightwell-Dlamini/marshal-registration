@@ -24,6 +24,7 @@ export const SAMPLE_INITIAL_MARSHAL: MarshalRegistration = {
   residentialAddress: 'Ndlavane',
   homeTelNo: 'N/A',
   cellNo: '76704181',
+  whatsappNo: '76704181',
   idNumber: '8203296100441',
   chiefOfArea: 'Logcogco Dlamini',
   indvuna: 'Jan Mngometulu',
@@ -47,7 +48,9 @@ export const SAMPLE_INITIAL_MARSHAL: MarshalRegistration = {
 // =============================================================
 // CONVERSION HELPERS
 // =============================================================
-function marshalToRow(m: MarshalRegistration): Omit<MarshalRow, 'server_created_at' | 'server_updated_at'> {
+function marshalToRow(
+  m: MarshalRegistration
+): Omit<MarshalRow, 'server_created_at' | 'server_updated_at'> {
   return {
     id: m.id,
     staff_number: m.staffNumber,
@@ -57,6 +60,7 @@ function marshalToRow(m: MarshalRegistration): Omit<MarshalRow, 'server_created_
     residential_address: m.residentialAddress,
     home_tel_no: m.homeTelNo || 'N/A',
     cell_no: m.cellNo,
+    whatsapp_no: m.whatsappNo?.trim() || null,
     id_number: m.idNumber,
     chief_of_area: m.chiefOfArea,
     indvuna: m.indvuna,
@@ -102,6 +106,7 @@ function rowToMarshal(r: MarshalRow): MarshalRegistration {
     residentialAddress: r.residential_address,
     homeTelNo: r.home_tel_no,
     cellNo: r.cell_no,
+    whatsappNo: r.whatsapp_no ?? undefined,
     idNumber: r.id_number,
     chiefOfArea: r.chief_of_area,
     indvuna: r.indvuna,
@@ -259,9 +264,6 @@ class StorageService {
     });
   }
 
-  // -----------------------------------------------------------
-  // READ: prefer remote, merge local pending, fall back to cache
-  // -----------------------------------------------------------
   public async getAllMarshals(): Promise<MarshalRegistration[]> {
     try {
       const { data, error } = await supabase
@@ -272,11 +274,8 @@ class StorageService {
       if (error) throw error;
 
       const remoteMarshals = ((data || []) as MarshalRow[]).map(rowToMarshal);
-
-      // Cache remote data locally
       await idbCache.putMany(remoteMarshals);
 
-      // Merge any locally-pending records that aren't yet on the server
       const local = await idbCache.getAll();
       const pendingLocal = local.filter(
         (m) => m.syncStatus === 'pending_sync' || m.syncStatus === 'error'
@@ -313,15 +312,10 @@ class StorageService {
     return all.filter((m) => m.syncStatus === 'pending_sync' || m.syncStatus === 'error');
   }
 
-  // -----------------------------------------------------------
-  // WRITE: local-first then attempt remote
-  // -----------------------------------------------------------
   public async saveMarshal(marshal: MarshalRegistration): Promise<MarshalRegistration> {
-    // 1. Save locally immediately
     await idbCache.put(marshal);
     this.notify();
 
-    // 2. Try to push to Supabase (upload media + upsert row)
     try {
       const uploaded = await this.uploadMediaAndSync(marshal);
       await idbCache.put(uploaded);
@@ -373,14 +367,10 @@ class StorageService {
     }
   }
 
-  // -----------------------------------------------------------
-  // MEDIA UPLOAD + ROW UPSERT
-  // -----------------------------------------------------------
   private async uploadMediaAndSync(marshal: MarshalRegistration): Promise<MarshalRegistration> {
     let photoStoragePath = marshal.photoStoragePath;
     let signatureStoragePath = marshal.signatureStoragePath;
 
-    // Upload photo if we have a data URL and no remote path yet
     if (marshal.photoDataUrl && !photoStoragePath) {
       const ext = getExtensionFromDataUrl(marshal.photoDataUrl);
       const path = `${marshal.id}/photo.${ext}`;
@@ -398,7 +388,6 @@ class StorageService {
       photoStoragePath = path;
     }
 
-    // Upload signature
     if (marshal.signatureDataUrl && !signatureStoragePath) {
       const ext = getExtensionFromDataUrl(marshal.signatureDataUrl);
       const path = `${marshal.id}/signature.${ext}`;
@@ -449,9 +438,6 @@ class StorageService {
     return syncedMarshal;
   }
 
-  // -----------------------------------------------------------
-  // BULK SYNC (used by sync manager)
-  // -----------------------------------------------------------
   public async syncPendingMarshals(
     onProgress?: (done: number, total: number) => void
   ): Promise<{ syncedCount: number; failedCount: number; failedIds: string[] }> {
