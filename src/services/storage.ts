@@ -12,9 +12,6 @@ const DB_VERSION = 1;
 const STORE_MARSHALS = 'marshals';
 const LOCAL_STORAGE_BACKUP_KEY = 'eswatini_marshals_backup_v2';
 
-// =============================================================
-// SAMPLE DATA (used only for initial prefill in the form)
-// =============================================================
 export const SAMPLE_INITIAL_MARSHAL: MarshalRegistration = {
   id: 'sample-04-mkhatshwa',
   staffNumber: '04',
@@ -46,11 +43,13 @@ export const SAMPLE_INITIAL_MARSHAL: MarshalRegistration = {
 };
 
 // =============================================================
-// CONVERSION HELPERS
+// CONVERSION
 // =============================================================
 function marshalToRow(
-  m: MarshalRegistration
+  m: MarshalRegistration,
+  opts: { stripBase64?: boolean } = {}
 ): Omit<MarshalRow, 'server_created_at' | 'server_updated_at'> {
+  const strip = opts.stripBase64 === true;
   return {
     id: m.id,
     staff_number: m.staffNumber,
@@ -77,8 +76,9 @@ function marshalToRow(
     notes: m.notes ?? null,
     photo_storage_path: m.photoStoragePath ?? null,
     signature_storage_path: m.signatureStoragePath ?? null,
-    photo_data_url: m.photoDataUrl ?? null,
-    signature_data_url: m.signatureDataUrl ?? null,
+    // P2.2: strip base64 once it's safely uploaded to Storage
+    photo_data_url: strip ? null : m.photoDataUrl ?? null,
+    signature_data_url: strip ? null : m.signatureDataUrl ?? null,
     created_at: m.createdAt,
     updated_at: m.updatedAt,
     synced_at: m.syncedAt ?? null,
@@ -137,7 +137,7 @@ function rowToMarshal(r: MarshalRow): MarshalRegistration {
 }
 
 // =============================================================
-// INDEXEDDB (offline cache)
+// INDEXEDDB
 // =============================================================
 class IDBCache {
   private dbPromise: Promise<IDBDatabase> | null = null;
@@ -242,7 +242,7 @@ class IDBCache {
 const idbCache = new IDBCache();
 
 // =============================================================
-// MAIN STORAGE SERVICE
+// STORAGE SERVICE
 // =============================================================
 class StorageService {
   private changeListeners: Array<() => void> = [];
@@ -304,6 +304,45 @@ class StorageService {
     } catch {
       const all = await idbCache.getAll();
       return all.find((m) => m.id === id) || null;
+    }
+  }
+
+  /**
+   * P2.7 — Duplicate detection by National ID number.
+   * Returns the existing marshal if a match exists (excluding `excludeId`).
+   */
+  public async findDuplicateByIdNumber(
+    idNumber: string,
+    excludeId?: string
+  ): Promise<MarshalRegistration | null> {
+    const trimmed = idNumber.trim();
+    if (!trimmed) return null;
+
+    try {
+      let query = supabase
+        .from(TABLES.marshals)
+        .select('*')
+        .eq('id_number', trimmed)
+        .limit(2);
+
+      if (excludeId) {
+        query = query.neq('id', excludeId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        return rowToMarshal(data[0] as MarshalRow);
+      }
+      return null;
+    } catch (err) {
+      // Fallback: check local cache
+      const all = await idbCache.getAll();
+      const match = all.find(
+        (m) => m.idNumber.trim() === trimmed && (!excludeId || m.id !== excludeId)
+      );
+      return match || null;
     }
   }
 
@@ -371,6 +410,7 @@ class StorageService {
     let photoStoragePath = marshal.photoStoragePath;
     let signatureStoragePath = marshal.signatureStoragePath;
 
+    // Upload photo if we have a data URL and no remote path yet
     if (marshal.photoDataUrl && !photoStoragePath) {
       const ext = getExtensionFromDataUrl(marshal.photoDataUrl);
       const path = `${marshal.id}/photo.${ext}`;
@@ -406,24 +446,31 @@ class StorageService {
     }
 
     const now = Date.now();
+    const photoRemoteUrl = photoStoragePath
+      ? supabase.storage.from(STORAGE_BUCKETS.photos).getPublicUrl(photoStoragePath).data.publicUrl
+      : undefined;
+    const signatureRemoteUrl = signatureStoragePath
+      ? supabase.storage
+          .from(STORAGE_BUCKETS.signatures)
+          .getPublicUrl(signatureStoragePath).data.publicUrl
+      : undefined;
+
+    // P2.2: build the "synced" marshal WITHOUT base64 (they're now on the CDN)
     const syncedMarshal: MarshalRegistration = {
       ...marshal,
       photoStoragePath,
       signatureStoragePath,
+      photoRemoteUrl,
+      signatureRemoteUrl,
+      photoDataUrl: undefined, // stripped
+      signatureDataUrl: undefined, // stripped
       syncStatus: 'synced',
       syncedAt: now,
       updatedAt: now,
-      photoRemoteUrl: photoStoragePath
-        ? supabase.storage.from(STORAGE_BUCKETS.photos).getPublicUrl(photoStoragePath).data.publicUrl
-        : undefined,
-      signatureRemoteUrl: signatureStoragePath
-        ? supabase.storage
-            .from(STORAGE_BUCKETS.signatures)
-            .getPublicUrl(signatureStoragePath).data.publicUrl
-        : undefined,
     };
 
-    const row = marshalToRow(syncedMarshal);
+    // P2.2: also strip base64 in the DB row
+    const row = marshalToRow(syncedMarshal, { stripBase64: true });
 
     const { error: dbErr } = await supabase
       .from(TABLES.marshals)
@@ -487,6 +534,35 @@ class StorageService {
     } catch (e) {
       console.warn('[Storage] Failed to write sync log', e);
     }
+  }
+
+  /** P2.9 — Fetch sync logs for the log viewer */
+  public async getSyncLogs(limit = 50): Promise<import('../types').SyncLogRow[]> {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.syncLogs)
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return (data || []) as import('../types').SyncLogRow[];
+    } catch (err) {
+      console.warn('[Storage] Failed to fetch sync logs', err);
+      return [];
+    }
+  }
+
+  /** P2.8 — Apply a remote realtime event to the local cache */
+  public async applyRemoteChange(row: MarshalRow): Promise<void> {
+    const m = rowToMarshal(row);
+    await idbCache.put(m);
+    this.notify();
+  }
+
+  /** P2.8 — Apply a remote realtime DELETE */
+  public async applyRemoteDelete(id: string): Promise<void> {
+    await idbCache.delete(id);
+    this.notify();
   }
 }
 
